@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Zevora AI Studio"
+description = "A premium AI photo and video editing studio with authenticated accounts, configurable generation providers, credit balances, creation history, plan management, and protected administration."
+version = "1.0.0"
+id = "artifacts/zevora-ai-studio"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22407
+
+[services.development]
+run = "pnpm --filter @workspace/zevora-ai-studio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/zevora-ai-studio", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/zevora-ai-studio/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22407"
+BASE_PATH = "/"

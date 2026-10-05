@@ -1,0 +1,445 @@
+Build a complete production-ready AI Photo & Video Editing SaaS called “Zevora AI Studio”.
+
+IMPORTANT:
+Build the entire application in one implementation. Do not create a demo-only frontend. Do not use fake AI generation, fake payment success, fake credits or fake user data.
+
+TECH:
+- Next.js/React + TypeScript
+- Tailwind CSS
+- PostgreSQL/Supabase-compatible database
+- Secure server-side API routes
+- Responsive mobile + desktop UI
+- Dark/light mode
+- Clean modern premium SaaS design
+
+BRAND:
+Name: Zevora AI Studio
+Tagline: Create. Edit. Transform with AI.
+Make the website name, logo and branding configurable from Admin Settings.
+
+AUTH:
+- Email/password signup/login
+- Forgot/reset password
+- Google authentication architecture
+- Secure sessions
+- User profile
+- Role-based access: user/admin
+
+AI PHOTO STUDIO:
+Create working tool pages for:
+1. Text to Image
+2. Image to Image
+3. Background Remove
+4. Background Replace
+5. Object Remove
+6. AI Enhance
+7. Image Upscale
+8. AI Product Photo
+9. AI Portrait
+10. AI Style/Restyle
+11. Image Resize
+12. Image Compress
+
+AI VIDEO STUDIO:
+Create working tool pages for:
+1. Text to Video
+2. Image to Video
+3. Video to Video
+4. AI Product Advertisement
+5. Social Media Video
+6. Video Enhancement
+7. Video Resize
+8. Video Compress
+
+AI PROVIDER SYSTEM:
+Create a provider abstraction layer.
+
+AI providers/models must be configurable from Admin Panel.
+Do not hard-code the application to one AI provider.
+
+Support API-based providers such as:
+- Replicate
+- fal.ai
+- Runway or another compatible video provider
+
+Use environment variables for API keys.
+NEVER expose API keys in frontend/client code.
+All AI requests must go through secure backend/server routes.
+
+If a provider/API key is not configured, show:
+“AI provider is not configured. Please contact the administrator.”
+Never pretend a generation succeeded.
+
+GENERATION FLOW:
+User selects tool
+→ uploads image/video if required
+→ enters prompt/settings
+→ system checks credits
+→ deduct credits only when generation is successfully submitted
+→ call secure AI backend
+→ track generation status:
+pending / processing / completed / failed
+→ save result
+→ show preview
+→ allow download
+→ save to generation history.
+
+If generation fails, refund the consumed credits automatically.
+
+CREDITS:
+Every user has a credit balance.
+
+Admin can configure credit cost separately for every tool/model.
+
+Example default costs:
+- Text to Image: 5
+- Image Editing: 3
+- Background Remove: 2
+- Upscale: 5
+- Text to Video: 25
+- Image to Video: 20
+- Video Editing: 15
+
+These are only defaults and MUST be editable by admin.
+
+FREE PLAN:
+- Configurable monthly/daily credits
+- Limited generations
+- Standard models
+- Watermark where configured
+- Lower resolution where configured
+
+PREMIUM PLAN:
+- Higher credits
+- Premium models
+- No watermark
+- Higher resolution
+- Faster generation priority
+- More video generations
+
+Do not hard-code plan limits.
+All limits must be configurable from Admin Panel.
+
+SUBSCRIPTIONS & PAYMENTS:
+Create complete payment architecture.
+
+Support:
+- Monthly subscription
+- Yearly subscription
+- One-time credit packs
+
+Use a modular payment service so Razorpay can be connected for Indian payments and Stripe can be connected later if needed.
+
+Payment flow:
+Plan selection
+→ checkout
+→ payment verification on server
+→ activate subscription/credits
+→ save transaction
+→ update user plan.
+
+Never trust payment status from frontend.
+
+WEBHOOKS:
+Create secure webhook endpoints for payment providers.
+Handle:
+- successful payment
+- failed payment
+- refund
+- subscription activation
+- subscription renewal
+- subscription cancellation
+
+USER DASHBOARD:
+Show:
+- Current plan
+- Credit balance
+- Usage
+- Upgrade button
+- Recent generations
+- Images
+- Videos
+- Favorites
+- Downloads
+- Account settings
+
+GENERATION HISTORY:
+Save:
+- user ID
+- tool
+- provider
+- model
+- prompt
+- input files
+- output files
+- status
+- credits used
+- generation time
+- created date
+
+Allow:
+- preview
+- download
+- delete
+- regenerate
+- favorite
+
+FILE STORAGE:
+Use secure cloud storage architecture.
+Do not permanently store large files in PostgreSQL.
+Store file metadata in database and actual media in object storage.
+
+ADMIN PANEL:
+Create a complete protected admin dashboard.
+
+Admin features:
+
+1. Dashboard
+- Total users
+- Active users
+- Premium users
+- Total generations
+- Failed generations
+- Credits used
+- Revenue
+- Recent activity
+
+2. Users
+- Search users
+- View user
+- Change plan
+- Add/remove credits
+- Suspend/activate account
+- View usage
+- View generation history
+
+3. Plans
+- Create/edit/delete plans
+- Monthly price
+- Yearly price
+- Credits
+- Features
+- Limits
+- Watermark
+- Resolution
+- Priority
+
+4. AI Tools
+- Enable/disable tool
+- Change credit cost
+- Configure limits
+- Assign provider
+- Assign model
+
+5. AI Providers
+- Provider name
+- API configuration status
+- Model configuration
+- Enable/disable provider
+- Set priority/fallback provider
+
+Never display actual API secret values after saving them.
+
+6. Payments
+- Transactions
+- Subscriptions
+- Refund status
+- Payment status
+- Revenue
+
+7. Content
+- Manage public gallery
+- Remove inappropriate generated content
+- Manage featured examples
+
+8. Website Settings
+Admin can change:
+- Website name
+- Logo
+- Favicon
+- Tagline
+- Homepage text
+- Contact email
+- Social links
+- Footer
+- Maintenance mode
+
+9. Coupons
+Create complete coupon system:
+- Coupon code
+- Percentage discount
+- Fixed discount
+- Expiry
+- Usage limit
+- Per-user usage limit
+- Minimum purchase
+- Applicable plans
+- Enable/disable
+
+10. Analytics
+- Daily users
+- Monthly users
+- AI generations
+- Credits consumed
+- Revenue
+- Popular tools
+- Popular models
+
+SECURITY:
+- Server-side authorization
+- Admin route protection
+- Rate limiting
+- Input validation
+- File type validation
+- File size limits
+- Secure upload handling
+- Prevent API key exposure
+- Prevent users from modifying credits from frontend
+- Verify all payments server-side
+- Protect webhook endpoints
+- Sanitize prompts/inputs where necessary
+
+DATABASE TABLES:
+Create proper relational tables for:
+users
+profiles
+plans
+subscriptions
+credits
+credit_transactions
+ai_tools
+ai_providers
+ai_models
+generations
+generation_files
+payments
+coupons
+coupon_usage
+favorites
+admin_settings
+site_settings
+usage_logs
+webhook_events
+
+Add appropriate indexes, foreign keys and timestamps.
+
+HOMEPAGE:
+Create a beautiful professional landing page:
+
+Hero:
+“Create anything with AI.”
+“Powerful AI photo and video tools in one studio.”
+
+Buttons:
+- Start Creating
+- Explore AI Tools
+
+Sections:
+- AI Photo Studio
+- AI Video Studio
+- How It Works
+- Before/After examples
+- Pricing
+- Features
+- FAQ
+- CTA
+- Footer
+
+DASHBOARD UI:
+Sidebar:
+Home
+AI Photo
+AI Video
+My Creations
+Favorites
+Credits
+Pricing
+Settings
+
+ADMIN:
+Separate protected /admin area.
+
+PRICING:
+Create attractive Free / Pro / Premium plans.
+Prices and features must come from database/admin settings.
+
+AI TOOL UI:
+Every tool must have:
+- Upload area
+- Prompt field where applicable
+- Settings
+- Credit cost display
+- Generate button
+- Progress state
+- Error state
+- Result preview
+- Download button
+- Regenerate button
+
+MOBILE:
+The entire website must work properly on Android/mobile screens.
+Use bottom navigation or responsive sidebar where appropriate.
+
+ERROR HANDLING:
+Never show blank screens.
+Show useful error messages.
+Handle:
+- insufficient credits
+- invalid file
+- file too large
+- provider unavailable
+- generation failed
+- payment failed
+- network errors
+
+QUEUE:
+AI generations should use a job/queue architecture where appropriate.
+Do not block the web server waiting indefinitely for video generation.
+
+ENVIRONMENT:
+Create .env.example containing placeholders only, such as:
+DATABASE_URL=
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+REPLICATE_API_TOKEN=
+FAL_KEY=
+RUNWAY_API_KEY=
+RAZORPAY_KEY_ID=
+RAZORPAY_KEY_SECRET=
+STRIPE_SECRET_KEY=
+
+Never put real secrets in source code.
+
+IMPORTANT FINAL REQUIREMENTS:
+- No fake buttons
+- No fake AI results
+- No fake payment success
+- No fake credit deduction
+- No hard-coded user data
+- No API secrets in client code
+- No unfinished placeholder pages
+- Every navigation item must work
+- Every database operation must have error handling
+- Build database schema/migrations
+- Include setup instructions
+- Include .env.example
+- Include seed/admin setup instructions
+- Make the application deployable on Replit/Vercel
+- Keep provider integrations modular so new AI models can be added later without redesigning the application.
+
+After implementation, test:
+1. Signup/login
+2. User dashboard
+3. Credit deduction/refund
+4. AI generation flow
+5. Generation history
+6. Free/Premium permissions
+7. Admin authentication
+8. Admin tool configuration
+9. Coupon system
+10. Payment verification/webhooks
+11. Mobile responsiveness
+12. Error states
+
+Do not stop after creating the UI. Complete the backend, database, authentication, AI integration architecture, credits, subscriptions, admin panel and deployment configuration.

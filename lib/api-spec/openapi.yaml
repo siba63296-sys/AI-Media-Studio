@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Zevora AI Studio product, account, generation, and admin API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: studio
+    description: Public studio catalog and authenticated creator workspace
+  - name: generations
+    description: User-owned generation history and actions
+  - name: storage
+    description: Secure upload handling
+  - name: admin
+    description: Protected administration
 paths:
   /healthz:
     get:
@@ -24,6 +32,513 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /site-config:
+    get:
+      operationId: getSiteConfig
+      tags: [studio]
+      summary: Read public website branding and availability
+      responses:
+        "200":
+          description: Public site configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteConfig"
+  /tools:
+    get:
+      operationId: getTools
+      tags: [studio]
+      summary: List enabled photo and video tools
+      responses:
+        "200":
+          description: Available tools, including provider readiness
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiTool"
+  /plans:
+    get:
+      operationId: getPlans
+      tags: [studio]
+      summary: List active subscription plans
+      responses:
+        "200":
+          description: Current plan catalog
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [studio]
+      summary: Read the signed-in user's real account overview
+      responses:
+        "200":
+          description: Account and usage summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+        "401":
+          description: Sign-in is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /generations:
+    get:
+      operationId: getGenerations
+      tags: [generations]
+      summary: List the signed-in user's generation history
+      parameters:
+        - name: favoritesOnly
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: User-owned generation records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Generation"
+        "401":
+          description: Sign-in is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createGeneration
+      tags: [generations]
+      summary: Submit a generation to a configured AI provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerationInput"
+      responses:
+        "202":
+          description: Generation accepted by a configured provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Generation"
+        "400":
+          description: Invalid tool or input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Sign-in is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "402":
+          description: Insufficient credits
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "503":
+          description: AI provider is not configured or unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /generations/{generationId}/favorite:
+    patch:
+      operationId: setGenerationFavorite
+      tags: [generations]
+      summary: Add or remove a generation from favorites
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FavoriteInput"
+      responses:
+        "200":
+          description: Updated generation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Generation"
+        "401":
+          description: Sign-in is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /generations/{generationId}:
+    delete:
+      operationId: deleteGeneration
+      tags: [generations]
+      summary: Delete a generation owned by the signed-in user
+      parameters:
+        - name: generationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Generation deleted
+        "401":
+          description: Sign-in is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Generation not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /storage/uploads/request-url:
+    post:
+      operationId: requestUploadUrl
+      tags: [storage]
+      summary: Create a short-lived private upload URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Upload URL created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        "400":
+          description: Invalid file metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Sign-in is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/overview:
+    get:
+      operationId: getAdminOverview
+      tags: [admin]
+      summary: Read operational and usage metrics
+      responses:
+        "200":
+          description: Admin summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverview"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools:
+    get:
+      operationId: getAdminTools
+      tags: [admin]
+      summary: List all configurable tools
+      responses:
+        "200":
+          description: Tool configuration
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiTool"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/tools/{toolId}:
+    patch:
+      operationId: updateAdminTool
+      tags: [admin]
+      summary: Update a tool's cost, model, or enabled state
+      parameters:
+        - name: toolId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiToolUpdate"
+      responses:
+        "200":
+          description: Updated tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiTool"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans:
+    get:
+      operationId: getAdminPlans
+      tags: [admin]
+      summary: List all subscription plans
+      responses:
+        "200":
+          description: Configurable subscription plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plan"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: createAdminPlan
+      tags: [admin]
+      summary: Create a subscription plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "201":
+          description: Created plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/plans/{planId}:
+    patch:
+      operationId: updateAdminPlan
+      tags: [admin]
+      summary: Update a subscription plan
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "200":
+          description: Updated plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plan"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminPlan
+      tags: [admin]
+      summary: Remove a plan that has no active subscriptions
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Plan deleted
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/providers:
+    get:
+      operationId: getAdminProviders
+      tags: [admin]
+      summary: Read provider readiness without exposing secret values
+      responses:
+        "200":
+          description: Provider metadata and configured status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiProvider"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/providers/{providerId}:
+    patch:
+      operationId: updateAdminProvider
+      tags: [admin]
+      summary: Update provider enablement, priority, and allowed models
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiProviderUpdate"
+      responses:
+        "200":
+          description: Updated provider metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiProvider"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      tags: [admin]
+      summary: Search user accounts
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User accounts, balances, and plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/users/{userId}:
+    patch:
+      operationId: updateAdminUser
+      tags: [admin]
+      summary: Change account access, plan, or credit balance
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserUpdate"
+      responses:
+        "200":
+          description: Updated user account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/settings:
+    patch:
+      operationId: updateAdminSettings
+      tags: [admin]
+      summary: Update public brand settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteConfigInput"
+      responses:
+        "200":
+          description: Updated site settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteConfig"
+        "403":
+          description: Admin access is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +548,173 @@ components:
           type: string
       required:
         - status
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string }
+    SiteConfig:
+      type: object
+      required: [name, tagline, maintenanceMode]
+      properties:
+        name: { type: string }
+        tagline: { type: string }
+        homepageText: { type: string }
+        contactEmail: { type: ["string", "null"] }
+        logoUrl: { type: ["string", "null"] }
+        maintenanceMode: { type: boolean }
+    SiteConfigInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        tagline: { type: string, maxLength: 180 }
+        homepageText: { type: string, maxLength: 2000 }
+        contactEmail: { type: ["string", "null"] }
+        logoUrl: { type: ["string", "null"] }
+        maintenanceMode: { type: boolean }
+    AiTool:
+      type: object
+      required: [id, name, category, description, credits, enabled, provider, model, providerConfigured, acceptsUpload]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string, enum: [photo, video] }
+        description: { type: string }
+        credits: { type: integer }
+        enabled: { type: boolean }
+        provider: { type: string }
+        model: { type: string }
+        providerConfigured: { type: boolean }
+        acceptsUpload: { type: boolean }
+    AiToolUpdate:
+      type: object
+      properties:
+        credits: { type: integer, minimum: 0, maximum: 10000 }
+        enabled: { type: boolean }
+        provider: { type: string }
+        model: { type: string }
+    Plan:
+      type: object
+      required: [id, name, description, monthlyPrice, yearlyPrice, credits, features, active, popular]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        monthlyPrice: { type: number, minimum: 0 }
+        yearlyPrice: { type: number, minimum: 0 }
+        currency: { type: string }
+        credits: { type: integer, minimum: 0 }
+        features: { type: array, items: { type: string } }
+        active: { type: boolean }
+        popular: { type: boolean }
+    PlanInput:
+      type: object
+      required: [name, description, monthlyPrice, yearlyPrice, credits]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        description: { type: string, maxLength: 240 }
+        monthlyPrice: { type: number, minimum: 0 }
+        yearlyPrice: { type: number, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        credits: { type: integer, minimum: 0 }
+        features: { type: array, items: { type: string } }
+        active: { type: boolean }
+        popular: { type: boolean }
+    Dashboard:
+      type: object
+      required: [planName, creditBalance, generationsThisMonth, recentGenerations]
+      properties:
+        planName: { type: string }
+        creditBalance: { type: integer }
+        generationsThisMonth: { type: integer }
+        recentGenerations:
+          type: array
+          items: { $ref: "#/components/schemas/Generation" }
+    Generation:
+      type: object
+      required: [id, toolId, toolName, category, prompt, status, creditsUsed, favorite, createdAt, inputFiles, outputFiles]
+      properties:
+        id: { type: string }
+        toolId: { type: string }
+        toolName: { type: string }
+        category: { type: string, enum: [photo, video] }
+        prompt: { type: string }
+        status: { type: string, enum: [pending, processing, completed, failed] }
+        creditsUsed: { type: integer }
+        favorite: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        inputFiles: { type: array, items: { type: string } }
+        outputFiles: { type: array, items: { type: string } }
+    GenerationInput:
+      type: object
+      required: [toolId, prompt]
+      properties:
+        toolId: { type: string, minLength: 1 }
+        prompt: { type: string, maxLength: 4000 }
+        inputFiles: { type: array, maxItems: 5, items: { type: string } }
+        settings:
+          type: object
+          additionalProperties: true
+    FavoriteInput:
+      type: object
+      required: [favorite]
+      properties:
+        favorite: { type: boolean }
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255 }
+        size: { type: integer, minimum: 1, maximum: 52428800 }
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, image/avif, video/mp4, video/quicktime, video/webm]
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL: { type: string, format: uri }
+        objectPath: { type: string }
+    AdminOverview:
+      type: object
+      required: [totalUsers, premiumUsers, totalGenerations, failedGenerations, creditsUsed]
+      properties:
+        totalUsers: { type: integer }
+        premiumUsers: { type: integer }
+        totalGenerations: { type: integer }
+        failedGenerations: { type: integer }
+        creditsUsed: { type: integer }
+    AiProvider:
+      type: object
+      required: [id, name, enabled, configured, priority, models]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        enabled: { type: boolean }
+        configured: { type: boolean }
+        priority: { type: integer }
+        models: { type: array, items: { type: string } }
+    AiProviderUpdate:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        priority: { type: integer, minimum: 0, maximum: 10000 }
+        models: { type: array, items: { type: string, minLength: 1 } }
+    AdminUser:
+      type: object
+      required: [id, email, planName, creditBalance, status, createdAt]
+      properties:
+        id: { type: string }
+        email: { type: ["string", "null"] }
+        planName: { type: string }
+        creditBalance: { type: integer }
+        status: { type: string, enum: [active, suspended] }
+        createdAt: { type: string, format: date-time }
+    AdminUserUpdate:
+      type: object
+      properties:
+        status: { type: string, enum: [active, suspended] }
+        planId: { type: string }
+        creditAdjustment: { type: integer, minimum: -1000000, maximum: 1000000 }
 
