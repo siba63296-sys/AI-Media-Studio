@@ -16,8 +16,8 @@ export type ProviderResult = {
 };
 
 function getProviderKey(providerId: string): string | undefined {
-  if (providerId === "replicate") return process.env.REPLICATE_API_TOKEN;
-  if (providerId === "fal") return process.env.FAL_KEY;
+  if (providerId === "replicate") return process.env.REPLICATE_API_TOKEN?.trim() || undefined;
+  if (providerId === "fal") return process.env.FAL_KEY?.trim() || undefined;
   return undefined;
 }
 

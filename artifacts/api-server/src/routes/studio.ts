@@ -191,6 +191,15 @@ async function ensureAccount(
     sendError(res, 403, "This account is not currently available.", "ACCOUNT_UNAVAILABLE");
     return null;
   }
+  // The allowlist also applies to accounts created before owner setup.
+  // Identity comes exclusively from the verified Clerk session, never the body.
+  if (account.role !== "admin" && configuredAdminIds().has(clerkId)) {
+    await db
+      .update(usersTable)
+      .set({ role: "admin", updatedAt: new Date() })
+      .where(eq(usersTable.clerkId, clerkId));
+    account.role = "admin";
+  }
   return account;
 }
 

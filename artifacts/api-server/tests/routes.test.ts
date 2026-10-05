@@ -4,7 +4,7 @@ import { after, before, test } from "node:test";
 import type { Server } from "node:http";
 import express from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, pool, usersTable, generationsTable } from "@workspace/db";
+import { db, pool, usersTable, generationsTable, aiToolsTable, aiProvidersTable } from "@workspace/db";
 import {
   GetDashboardResponse, GetToolsResponse, GetGenerationsResponse,
   GetAdminOverviewResponse, GetAdminProvidersResponse,
@@ -137,6 +137,69 @@ test("administrators get valid overview and provider responses", async () => {
   assert.deepEqual(providers.map(p => p.id).sort(), ["fal", "replicate", "runway"]);
   for (const path of ["/admin/tools", "/admin/plans", "/admin/users"]) {
     assert.equal((await request(path, adminId)).status, 200, path);
+  }
+});
+
+test("the allowlist promotes an existing account without granting ordinary users access", async () => {
+  await db.update(usersTable).set({ role: "user" }).where(eq(usersTable.clerkId, adminId));
+  // This account already exists; creation-time role assignment cannot fix it.
+  process.env.ADMIN_CLERK_USER_IDS = ` , ${adminId} , `;
+  for (const path of ["/admin/overview", "/admin/tools", "/admin/plans", "/admin/providers"]) {
+    assert.equal((await request(path, adminId)).status, 200, path);
+    assert.equal((await request(path, userId)).status, 403, path);
+    assert.equal((await request(path)).status, 401, path);
+  }
+  const [account] = await db.select().from(usersTable).where(eq(usersTable.clerkId, adminId));
+  assert.equal(account.role, "admin");
+});
+
+test("an allowlisted but suspended owner remains blocked", async () => {
+  await db.update(usersTable).set({ role: "user", status: "suspended" }).where(eq(usersTable.clerkId, adminId));
+  try {
+    const response = await request("/admin/overview", adminId);
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, "ACCOUNT_UNAVAILABLE");
+  } finally {
+    await db.update(usersTable).set({ status: "active" }).where(eq(usersTable.clerkId, adminId));
+  }
+});
+
+test("provider and tool settings persist and require admin access; keys never leave the server", async () => {
+  const [provider] = await db.select().from(aiProvidersTable).where(eq(aiProvidersTable.id, "replicate"));
+  const [tool] = await db.select().from(aiToolsTable).where(eq(aiToolsTable.id, "text-to-image"));
+  const originalKey = process.env.REPLICATE_API_TOKEN;
+  // Only configuration detection is tested; no paid provider request is sent.
+  const fixtureKey = `test-only-${randomUUID()}`;
+  const providerUpdate = { method: "PATCH", body: JSON.stringify({ enabled: true, priority: 2, models: ["test/model"] }) };
+  const toolUpdate = { method: "PATCH", body: JSON.stringify({ provider: "replicate", model: "test/model" }) };
+  try {
+    assert.equal((await request("/admin/providers/replicate", userId, providerUpdate)).status, 403);
+    assert.equal((await request("/admin/tools/text-to-image", userId, toolUpdate)).status, 403);
+    process.env.REPLICATE_API_TOKEN = "   ";
+    const providersMissing = await (await request("/admin/providers", adminId)).json();
+    assert.equal(providersMissing.find((p: { id: string }) => p.id === "replicate").configured, false);
+    process.env.REPLICATE_API_TOKEN = fixtureKey;
+    const updated = await request("/admin/providers/replicate", adminId, providerUpdate);
+    assert.equal(updated.status, 200);
+    assert.equal((await updated.json()).configured, true);
+    const updatedTool = await request("/admin/tools/text-to-image", adminId, toolUpdate);
+    assert.equal(updatedTool.status, 200);
+    assert.equal((await updatedTool.json()).providerConfigured, true);
+    const publicTools = await (await request("/tools")).json();
+    assert.equal(publicTools.find((t: { id: string }) => t.id === tool.id).providerConfigured, true);
+    const providerResponse = await (await request("/admin/providers", adminId)).text();
+    assert.ok(!providerResponse.includes(fixtureKey));
+    const saved = JSON.parse(providerResponse).find((p: { id: string }) => p.id === provider.id);
+    assert.deepEqual(saved.models, ["test/model"]);
+    assert.equal(saved.priority, 2);
+    delete process.env.REPLICATE_API_TOKEN;
+    const unconfiguredTools = await (await request("/tools")).json();
+    assert.equal(unconfiguredTools.find((t: { id: string }) => t.id === tool.id).providerConfigured, false);
+  } finally {
+    await db.update(aiToolsTable).set({ providerId: tool.providerId, model: tool.model }).where(eq(aiToolsTable.id, tool.id));
+    await db.update(aiProvidersTable).set({ enabled: provider.enabled, priority: provider.priority, models: provider.models }).where(eq(aiProvidersTable.id, provider.id));
+    if (originalKey === undefined) delete process.env.REPLICATE_API_TOKEN;
+    else process.env.REPLICATE_API_TOKEN = originalKey;
   }
 });
 

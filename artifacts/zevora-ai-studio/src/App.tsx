@@ -8,7 +8,7 @@ import {
   useGetAdminProviders, useGetAdminTools, useGetAdminUsers, useGetDashboard,
   useGetGenerations, useGetPlans, useGetSiteConfig, useGetTools, useRequestUploadUrl,
   useSetGenerationFavorite, useUpdateAdminPlan, useUpdateAdminSettings, useUpdateAdminTool,
-  useCreateAdminPlan, useDeleteAdminPlan,
+  useCreateAdminPlan, useDeleteAdminPlan, useUpdateAdminProvider,
   getGetAdminOverviewQueryKey, getGetAdminPlansQueryKey, getGetAdminProvidersQueryKey,
   getGetAdminToolsQueryKey, getGetAdminUsersQueryKey, getGetDashboardQueryKey,
   getGetGenerationsQueryKey, getGetPlansQueryKey, getGetSiteConfigQueryKey, getGetToolsQueryKey,
@@ -383,7 +383,19 @@ function AdminOverviewPanel() {
 function AdminToolsPanel() {
   const q = useGetAdminTools(); const update = useUpdateAdminTool(); const qc = useQueryClient(); const [notice, setNotice] = useState('');
   const patch = (toolId: string, data: { credits?: number; enabled?: boolean; provider?: string; model?: string }) => update.mutate({ toolId, data }, { onSuccess: () => { setNotice('Tool settings saved.'); void qc.invalidateQueries({ queryKey: getGetAdminToolsQueryKey() }); void qc.invalidateQueries({ queryKey: getGetToolsQueryKey() }); }, onError: e => setNotice(errorText(e)) });
-  return <QueryState loading={q.isLoading} error={q.isError ? q.error : undefined} retry={() => void q.refetch()} empty={!q.isLoading && !q.isError && !q.data?.length} emptyText="No tools are registered."><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Tool</th><th>Type</th><th>Credits</th><th>Provider / model</th><th>Provider status</th><th>Enabled</th></tr></thead><tbody>{q.data?.map(tool => <tr key={tool.id}><td><strong>{tool.name}</strong><small>{tool.description}</small></td><td>{tool.category}</td><td><input aria-label={`${tool.name} credits`} className="table-input narrow" type="number" min="0" defaultValue={tool.credits} onBlur={e => { const n = Number(e.currentTarget.value); if (n !== tool.credits) patch(tool.id, { credits: n }); }} /></td><td><span>{tool.provider}</span><small>{tool.model}</small></td><td><span className={`admin-status ${tool.providerConfigured ? 'configured' : 'unconfigured'}`}>{tool.providerConfigured ? 'Configured' : 'Not configured'}</span></td><td><button className={`toggle-switch ${tool.enabled ? 'on' : ''}`} aria-label={`${tool.enabled ? 'Disable' : 'Enable'} ${tool.name}`} onClick={() => patch(tool.id, { enabled: !tool.enabled })} /></td></tr>)}</tbody></table></div>{notice && <div className="admin-notice" role="status">{notice}</div>}</QueryState>;
+  return <QueryState loading={q.isLoading} error={q.isError ? q.error : undefined} retry={() => void q.refetch()} empty={!q.isLoading && !q.isError && !q.data?.length} emptyText="No tools are registered."><p className="mb-4 text-sm text-muted-foreground">Enable a provider in Providers, then select it and save a valid model identifier for each tool.</p><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Tool</th><th>Type</th><th>Credits</th><th>Provider / model</th><th>Provider status</th><th>Enabled</th></tr></thead><tbody>{q.data?.map(tool => <tr key={tool.id}><td><strong>{tool.name}</strong><small>{tool.description}</small></td><td>{tool.category}</td><td><input aria-label={`${tool.name} credits`} className="table-input narrow" type="number" min="0" defaultValue={tool.credits} onBlur={e => { const n = Number(e.currentTarget.value); if (n !== tool.credits) patch(tool.id, { credits: n }); }} /></td><td><ToolProviderForm key={`${tool.id}:${tool.provider}:${tool.model}`} tool={tool} pending={update.isPending} save={data => patch(tool.id, data)} /></td><td><span className={`admin-status ${tool.providerConfigured ? 'configured' : 'unconfigured'}`}>{tool.providerConfigured ? 'Configured' : 'Not configured'}</span></td><td><button className={`toggle-switch ${tool.enabled ? 'on' : ''}`} aria-label={`${tool.enabled ? 'Disable' : 'Enable'} ${tool.name}`} onClick={() => patch(tool.id, { enabled: !tool.enabled })} /></td></tr>)}</tbody></table></div>{notice && <div className="admin-notice" role="status">{notice}</div>}</QueryState>;
+}
+function ToolProviderForm({ tool, pending, save }: { tool: AiTool; pending: boolean; save: (data: { provider: string; model: string }) => void }) {
+  const [provider, setProvider] = useState(tool.provider);
+  const [model, setModel] = useState(tool.model);
+  return <form onSubmit={e => { e.preventDefault(); save({ provider, model: model.trim() }); }} className="space-y-2">
+    <select className="table-input" aria-label={`${tool.name} provider`} value={provider} onChange={e => setProvider(e.target.value)}>
+      <option value="unconfigured">No provider</option><option value="replicate">Replicate</option><option value="fal">fal.ai</option>
+      {provider !== 'unconfigured' && provider !== 'replicate' && provider !== 'fal' && <option value={provider}>{provider} (unsupported)</option>}
+    </select>
+    <input className="table-input" aria-label={`${tool.name} model`} value={model} onChange={e => setModel(e.target.value)} placeholder="Provider model identifier" maxLength={180} />
+    <button className="button button-secondary" type="submit" disabled={pending || (provider === tool.provider && model.trim() === tool.model)}>Save model</button>
+  </form>;
 }
 function AdminPlansPanel() {
   const q = useGetAdminPlans(); const create = useCreateAdminPlan(); const update = useUpdateAdminPlan(); const remove = useDeleteAdminPlan(); const qc = useQueryClient();
@@ -404,7 +416,25 @@ function AdminPlanRow({ plan, onUpdate, onDelete }: { plan: Plan; onUpdate: (dat
 }
 function AdminProvidersPanel() {
   const q = useGetAdminProviders();
-  return <QueryState loading={q.isLoading} error={q.isError ? q.error : undefined} retry={() => void q.refetch()} empty={!q.isLoading && !q.isError && !q.data?.length} emptyText="No AI providers are registered."><div className="provider-grid">{q.data?.map(provider => <article className="provider-card" key={provider.id}><div className="provider-card-head"><div className="settings-icon"><AudioLines size={17} /></div><span className={`admin-status ${provider.configured ? 'configured' : 'unconfigured'}`}>{provider.configured ? 'Configured' : 'Not configured'}</span></div><h3>{provider.name}</h3><p>Priority {provider.priority} · {provider.enabled ? 'Enabled' : 'Disabled'}</p><div className="provider-models">{provider.models.length ? provider.models.map(model => <span key={model}>{model}</span>) : <span>No model list reported</span>}</div></article>)}</div></QueryState>;
+  const update = useUpdateAdminProvider(); const qc = useQueryClient(); const [notice, setNotice] = useState('');
+  function save(providerId: string, data: { enabled: boolean; priority: number; models: string[] }) {
+    update.mutate({ providerId, data }, { onSuccess: () => {
+      setNotice('Provider settings saved. Assign models in Tools to enable generation.');
+      void qc.invalidateQueries({ queryKey: getGetAdminProvidersQueryKey() });
+      void qc.invalidateQueries({ queryKey: getGetAdminToolsQueryKey() });
+      void qc.invalidateQueries({ queryKey: getGetToolsQueryKey() });
+    }, onError: e => setNotice(errorText(e)) });
+  }
+  return <QueryState loading={q.isLoading} error={q.isError ? q.error : undefined} retry={() => void q.refetch()} empty={!q.isLoading && !q.isError && !q.data?.length} emptyText="No AI providers are registered."><p className="mb-4 text-sm text-muted-foreground">Keep API keys in Replit Secrets, never in this page. Add REPLICATE_API_TOKEN for Replicate or FAL_KEY for fal.ai, restart the API server, then refresh status. Enable the provider here and assign each tool a model in Tools. “Key present” checks configuration, not credential validity.</p><button className="button button-secondary mb-4" onClick={() => void q.refetch()}>Refresh key status</button><div className="provider-grid">{q.data?.map(provider => <article className="provider-card" key={provider.id}><div className="provider-card-head"><div className="settings-icon"><AudioLines size={17} /></div><span className={`admin-status ${provider.configured ? 'configured' : 'unconfigured'}`}>{provider.configured ? 'Key present' : 'Key missing'}</span></div><h3>{provider.name}</h3>{provider.id === 'replicate' || provider.id === 'fal' ? <ProviderSettingsForm key={JSON.stringify(provider)} provider={provider} pending={update.isPending} save={data => save(provider.id, data)} /> : <p>This provider has no generation adapter in this app. Use Replicate or fal.ai in Tools.</p>}</article>)}</div>{notice && <div className="admin-notice" role="status">{notice}</div>}</QueryState>;
+}
+function ProviderSettingsForm({ provider, pending, save }: { provider: { enabled: boolean; priority: number; models: string[] }; pending: boolean; save: (data: { enabled: boolean; priority: number; models: string[] }) => void }) {
+  const [enabled, setEnabled] = useState(provider.enabled); const [priority, setPriority] = useState(provider.priority); const [models, setModels] = useState(provider.models.join('\n'));
+  return <form className="space-y-3" onSubmit={e => { e.preventDefault(); save({ enabled, priority, models: models.split('\n').map(m => m.trim()).filter(Boolean) }); }}>
+    <label className="block"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} /> Enabled</label>
+    <label className="block">Priority<input className="table-input" type="number" min="0" required value={priority} onChange={e => setPriority(Number(e.target.value))} /></label>
+    <label className="block">Model identifiers (one per line)<textarea className="table-input w-full" rows={3} value={models} onChange={e => setModels(e.target.value)} /></label>
+    <button className="button button-primary" type="submit" disabled={pending}>Save provider</button>
+  </form>;
 }
 function AdminUsersPanel() {
   const [search, setSearch] = useState(''); const q = useGetAdminUsers(search.trim() ? { search: search.trim() } : undefined, { query: { queryKey: getGetAdminUsersQueryKey(search.trim() ? { search: search.trim() } : undefined) } });
