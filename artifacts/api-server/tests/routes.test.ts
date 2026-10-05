@@ -17,6 +17,7 @@ import { ObjectStorageService } from "../src/lib/objectStorage";
 const userId = `user_test_${randomUUID().replaceAll("-", "")}`;
 const adminId = `user_test_${randomUUID().replaceAll("-", "")}`;
 const originalAdmins = process.env.ADMIN_CLERK_USER_IDS;
+const originalClerkUserIds = process.env.CLERK_USER_IDS;
 let server: Server;
 let baseUrl: string;
 let creationId: string;
@@ -34,16 +35,17 @@ async function request(path: string, identity?: string, init?: RequestInit) {
 }
 
 before(async () => {
+  delete process.env.CLERK_USER_IDS;
   process.env.ADMIN_CLERK_USER_IDS = adminId;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     Object.assign(req, {
-      auth: () => ({
+      auth: Object.assign(() => ({
         userId: req.get("x-test-identity") ?? null,
         sessionId: "session_test",
         tokenType: "session_token",
-      }),
+      }), { [Symbol.for("@clerk/express.auth")]: true }),
       log: { error() {}, warn() {}, info() {} },
     });
     next();
@@ -54,7 +56,8 @@ before(async () => {
   assert.ok(address && typeof address === "object");
   baseUrl = `http://127.0.0.1:${address.port}`;
   for (const identity of [userId, adminId]) {
-    assert.equal((await request("/dashboard", identity)).status, 200);
+    const response = await request("/dashboard", identity);
+    assert.equal(response.status, 200, await response.text());
   }
   const [creation] = await db.insert(generationsTable).values({
     clerkId: userId, toolId: "text-to-image", category: "photo",
@@ -74,6 +77,8 @@ after(async () => {
   } finally {
     if (originalAdmins === undefined) delete process.env.ADMIN_CLERK_USER_IDS;
     else process.env.ADMIN_CLERK_USER_IDS = originalAdmins;
+    if (originalClerkUserIds === undefined) delete process.env.CLERK_USER_IDS;
+    else process.env.CLERK_USER_IDS = originalClerkUserIds;
     if (server) await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
     await pool.end();
   }
@@ -140,10 +145,10 @@ test("administrators get valid overview and provider responses", async () => {
   }
 });
 
-test("the allowlist promotes an existing account without granting ordinary users access", async () => {
+test("CLERK_USER_IDS promotes an existing account without granting ordinary users access", async () => {
   await db.update(usersTable).set({ role: "user" }).where(eq(usersTable.clerkId, adminId));
   // This account already exists; creation-time role assignment cannot fix it.
-  process.env.ADMIN_CLERK_USER_IDS = ` , ${adminId} , `;
+  process.env.CLERK_USER_IDS = ` , ${adminId} , `;
   for (const path of ["/admin/overview", "/admin/tools", "/admin/plans", "/admin/providers"]) {
     assert.equal((await request(path, adminId)).status, 200, path);
     assert.equal((await request(path, userId)).status, 403, path);
@@ -226,7 +231,9 @@ test("unconfigured AI fails explicitly without consuming credits", async () => {
   assert.equal((await response.json()).code, "PROVIDER_NOT_CONFIGURED");
 });
 
-test("private uploads round-trip and reject other users", async () => {
+test("private uploads round-trip and reject other users", {
+  skip: !process.env.PRIVATE_OBJECT_DIR ? "App Storage has not been configured." : false,
+}, async () => {
   const response = await request("/storage/uploads/request-url", userId, {
     method: "POST", body: JSON.stringify({ name: "test.png", size: 8, contentType: "image/png" }),
   });

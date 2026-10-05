@@ -29,6 +29,15 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  // Only the publishable key is safe to include in the browser bundle.
+  // Keep the user's existing Clerk instance and secret names.
+  define: {
+    'import.meta.env.VITE_CLERK_PUBLISHABLE_KEY': JSON.stringify(
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ??
+      process.env.CLERK_PUBLISHABLE_KEY ??
+      process.env.VITE_CLERK_PUBLISHABLE_KEY ?? '',
+    ),
+  },
   plugins: [
     react(),
     tailwindcss({ optimize: false }),

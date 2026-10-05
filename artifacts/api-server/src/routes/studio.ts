@@ -108,7 +108,7 @@ function asyncRoute(
 
 function configuredAdminIds(): Set<string> {
   return new Set(
-    (process.env.ADMIN_CLERK_USER_IDS ?? "")
+    (process.env.CLERK_USER_IDS ?? process.env.ADMIN_CLERK_USER_IDS ?? "")
       .split(",")
       .map((id) => id.trim())
       .filter(Boolean),
