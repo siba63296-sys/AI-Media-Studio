@@ -4,7 +4,7 @@ import { after, before, test } from "node:test";
 import type { Server } from "node:http";
 import express from "express";
 import { eq, inArray } from "drizzle-orm";
-import { db, pool, usersTable, generationsTable, aiToolsTable, aiProvidersTable } from "@workspace/db";
+import { db, pool, usersTable, generationsTable, aiToolsTable, aiProvidersTable, creditsTable, creditTransactionsTable } from "@workspace/db";
 import {
   GetDashboardResponse, GetToolsResponse, GetGenerationsResponse,
   GetAdminOverviewResponse, GetAdminProvidersResponse,
@@ -248,6 +248,117 @@ test("private uploads round-trip and reject other users", {
   assert.deepEqual(new Uint8Array(await read.arrayBuffer()), bytes);
   assert.equal((await request(`/storage${objectPath}`, adminId)).status, 403);
   assert.equal((await request(`/storage${objectPath}`)).status, 401);
+  const signedRead = await new ObjectStorageService().getObjectEntityReadURL(objectPath);
+  const providerRead = await fetch(signedRead);
+  assert.equal(providerRead.status, 200);
+  assert.deepEqual(new Uint8Array(await providerRead.arrayBuffer()), bytes);
+});
+
+test("generation pipeline persists images/video, deducts credits, and refunds failures once (simulated provider)", {
+  skip: !process.env.PRIVATE_OBJECT_DIR ? "App Storage has not been configured." : false,
+}, async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.REPLICATE_API_TOKEN;
+  const originalProvider = (await db.select().from(aiProvidersTable).where(eq(aiProvidersTable.id, "replicate")))[0];
+  const ids = ["text-to-image", "image-to-image", "image-to-video"];
+  const originals = await db.select().from(aiToolsTable).where(inArray(aiToolsTable.id, ids));
+  const storedFiles: string[] = [];
+  let nextJob = 0;
+  const jobStates = new Map<string, "succeeded" | "failed">();
+  let category: "photo" | "video" = "photo";
+  const imageBytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZhsAAAAASUVORK5CYII=", "base64");
+  const storage = new ObjectStorageService();
+  try {
+    assert.ok(uploadedPath, "The real storage round-trip must pass first.");
+    process.env.REPLICATE_API_TOKEN = "test-only-provider-fixture";
+    await db.update(aiProvidersTable).set({ enabled: true }).where(eq(aiProvidersTable.id, "replicate"));
+    for (const id of ids) {
+      await db.update(aiToolsTable).set({ providerId: "replicate", model: "test/model" }).where(eq(aiToolsTable.id, id));
+    }
+    await db.update(creditsTable).set({ balance: 100 }).where(eq(creditsTable.clerkId, userId));
+    globalThis.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.startsWith("https://api.replicate.com/")) {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          assert.ok(body.input.prompt);
+          if (body.input.image) {
+            assert.equal((await originalFetch(body.input.image)).status, 200, "Provider can read signed input URL.");
+            assert.equal(body.input.video, undefined, "An uploaded image must not become a video input.");
+          }
+          const id = `test-job-${++nextJob}`;
+          jobStates.set(id, body.input.prompt === "fail fixture" ? "failed" : "succeeded");
+          return Response.json({ id, status: "starting" });
+        }
+        const id = url.split("/").at(-1)!;
+        return Response.json({
+          id, status: jobStates.get(id),
+          output: `https://replicate.delivery/fixture/output.${category === "video" ? "mp4" : "png"}`,
+        });
+      }
+      if (url.startsWith("https://replicate.delivery/fixture/")) {
+        // Provider response is simulated; storage, database, and routes are real.
+        return new Response(imageBytes, { headers: { "content-type": category === "video" ? "video/mp4" : "image/png" } });
+      }
+      return originalFetch(input, init);
+    };
+    let expectedBalance = 100;
+    for (const toolId of ids) {
+      category = toolId === "image-to-video" ? "video" : "photo";
+      const response = await request("/generations", userId, {
+        method: "POST", body: JSON.stringify({
+          toolId, prompt: "generation fixture", inputFiles: toolId === "text-to-image" ? [] : [uploadedPath],
+        }),
+      });
+      assert.equal(response.status, 202, await response.clone().text());
+      const submitted = await response.json();
+      const tool = originals.find(t => t.id === toolId)!;
+      expectedBalance -= tool.credits;
+      let dashboard = await (await request("/dashboard", userId)).json();
+      assert.equal(dashboard.creditBalance, expectedBalance);
+      const histories = await Promise.all([request("/generations", userId), request("/generations", userId)]);
+      const rows = GetGenerationsResponse.parse(await histories[0].json());
+      assert.equal(histories[1].status, 200);
+      const completed = rows.find(g => g.id === submitted.id)!;
+      assert.equal(completed.status, "completed");
+      assert.equal(completed.outputFiles.length, 1, "Concurrent polling must not duplicate output records.");
+      storedFiles.push(...completed.outputFiles);
+      const output = await request(`/storage${completed.outputFiles[0]}`, userId);
+      assert.equal(output.status, 200);
+      assert.equal(output.headers.get("content-type"), category === "video" ? "video/mp4" : "image/png");
+      assert.equal((await request(`/storage${completed.outputFiles[0]}`, adminId)).status, 403);
+      dashboard = await (await request("/dashboard", userId)).json();
+      assert.equal(dashboard.creditBalance, expectedBalance);
+    }
+    const invalidImage = await request("/generations", userId, {
+      method: "POST", body: JSON.stringify({ toolId: "image-to-video", prompt: "test", inputFiles: [] }),
+    });
+    assert.equal(invalidImage.status, 400);
+    const failedResponse = await request("/generations", userId, {
+      method: "POST", body: JSON.stringify({ toolId: "text-to-image", prompt: "fail fixture", inputFiles: [] }),
+    });
+    assert.equal(failedResponse.status, 202);
+    const failed = await failedResponse.json();
+    await Promise.all([request("/generations", userId), request("/generations", userId)]);
+    await request("/generations", userId);
+    const history = await (await request("/generations", userId)).json();
+    assert.equal(history.find((g: { id: string }) => g.id === failed.id).status, "failed");
+    assert.equal((await (await request("/dashboard", userId)).json()).creditBalance, expectedBalance);
+    const ledger = await db.select().from(creditTransactionsTable).where(eq(creditTransactionsTable.clerkId, userId));
+    assert.equal(ledger.filter(row => row.reason === "generation").length, 4);
+    assert.equal(ledger.filter(row => row.reason === "generation_refund").length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.REPLICATE_API_TOKEN;
+    else process.env.REPLICATE_API_TOKEN = originalKey;
+    for (const tool of originals) {
+      await db.update(aiToolsTable).set({ providerId: tool.providerId, model: tool.model }).where(eq(aiToolsTable.id, tool.id));
+    }
+    await db.update(aiProvidersTable).set({ enabled: originalProvider.enabled }).where(eq(aiProvidersTable.id, "replicate"));
+    for (const path of storedFiles) {
+      await (await storage.getObjectEntityFile(path)).delete({ ignoreNotFound: true });
+    }
+  }
 });
 
 test("suspended accounts cannot access the workspace", async () => {

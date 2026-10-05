@@ -139,11 +139,12 @@ export class ObjectStorageService {
 
   async getObjectEntityReadURL(objectPath: string): Promise<string> {
     const objectFile = await this.getObjectEntityFile(objectPath);
-    const [url] = await objectFile.getSignedUrl({
-      action: "read",
-      expires: Date.now() + 15 * 60 * 1000,
+    return signObjectURL({
+      bucketName: objectFile.bucket.name,
+      objectName: objectFile.name,
+      method: "GET",
+      ttlSec: 900,
     });
-    return url;
   }
 
   async savePrivateObject({

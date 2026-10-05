@@ -357,7 +357,8 @@ async function syncGenerationStatus(
               eq(generationsTable.clerkId, userId),
             ),
           )
-          .limit(1);
+          .limit(1)
+          .for("update");
         if (!current || (current.status !== "processing" && current.status !== "pending")) {
           return;
         }
@@ -600,6 +601,13 @@ router.post(
     }
 
     const inputFiles = parsed.data.inputFiles ?? [];
+    if (
+      ["image-to-image", "image-to-video"].includes(tool.id) &&
+      inputFiles.length !== 1
+    ) {
+      sendError(res, 400, "Choose exactly one input image.", "INVALID_INPUT_FILE");
+      return;
+    }
     if (inputFiles.length > 0 && !tool.acceptsUpload) {
       sendError(res, 400, "This tool does not accept uploaded media.", "UPLOAD_NOT_SUPPORTED");
       return;
@@ -623,6 +631,13 @@ router.post(
         const [metadata] = await file.getMetadata();
         const size = Number(metadata.size ?? 0);
         const contentType = String(metadata.contentType ?? "");
+        if (
+          ["image-to-image", "image-to-video"].includes(tool.id) &&
+          !contentType.startsWith("image/")
+        ) {
+          sendError(res, 400, "This tool requires an image, not a video.", "INVALID_INPUT_FILE");
+          return;
+        }
         if (size <= 0 || size > 50 * 1024 * 1024) {
           sendError(res, 400, "One of the selected files exceeds the 50 MB limit.", "INVALID_INPUT_FILE");
           return;
@@ -656,6 +671,7 @@ router.post(
         prompt: parsed.data.prompt,
         category: tool.category,
         inputFiles,
+        inputContentTypes: inputMetadata.map((file) => file.contentType),
         settings: parsed.data.settings ?? {},
       });
       if (!providerResult.providerJobId || providerResult.status === "failed") {

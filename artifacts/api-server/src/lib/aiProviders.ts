@@ -91,6 +91,7 @@ export async function submitAiJob({
   prompt,
   category,
   inputFiles,
+  inputContentTypes,
   settings,
 }: {
   providerId: string;
@@ -99,6 +100,7 @@ export async function submitAiJob({
   prompt: string;
   category: "photo" | "video";
   inputFiles: string[];
+  inputContentTypes?: string[];
   settings: Record<string, unknown>;
 }): Promise<ProviderResult> {
   const model = safeModel(rawModel);
@@ -109,7 +111,17 @@ export async function submitAiJob({
     );
   }
   const signedInputs = await inputUrls(ownerId, inputFiles);
-  const mediaKey = category === "video" ? "video" : "image";
+  // Output category does not determine input media: image-to-video needs an image.
+  const mediaKey = inputContentTypes?.[0]?.startsWith("video/") ? "video" : "image";
+  if (inputContentTypes?.some((type) => type.startsWith("video/") !== (mediaKey === "video"))) {
+    throw new AiProviderError("Images and videos cannot be mixed in one request.");
+  }
+  if (
+    signedInputs.length > 1 &&
+    ["black-forest-labs/flux-dev", "wan-video/wan-2.2-i2v-fast"].includes(model)
+  ) {
+    throw new AiProviderError("This model accepts one input image at a time.");
+  }
   const input: Record<string, unknown> = {
     ...settings,
     prompt,
@@ -127,7 +139,6 @@ export async function submitAiJob({
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        Prefer: "wait=0",
       },
       body: JSON.stringify({
         ...(version ? { version } : {}),
@@ -165,7 +176,7 @@ export async function submitAiJob({
         ...settings,
         prompt,
         ...(signedInputs.length === 1
-          ? { [category === "video" ? "video_url" : "image_url"]: signedInputs[0] }
+          ? { [`${mediaKey}_url`]: signedInputs[0] }
           : signedInputs.length > 1
             ? { image_urls: signedInputs }
             : {}),
@@ -239,8 +250,10 @@ export async function checkAiJob({
   }
 
   if (providerId === "fal") {
+    // Queue operations use the model's base ID, not its inference subpath.
+    const queueModel = model.split("/").slice(0, 2).join("/");
     const statusResponse = await fetch(
-      `https://queue.fal.run/${model}/requests/${encodeURIComponent(providerJobId)}/status`,
+      `https://queue.fal.run/${queueModel}/requests/${encodeURIComponent(providerJobId)}/status`,
       {
         headers: { Authorization: `Key ${apiKey}` },
         signal: AbortSignal.timeout(15_000),
@@ -253,7 +266,7 @@ export async function checkAiJob({
     }
     const statusData = (await statusResponse.json()) as Record<string, unknown>;
     const rawStatus = String(statusData.status ?? "").toUpperCase();
-    if (rawStatus === "FAILED") {
+    if (rawStatus === "FAILED" || statusData.error || statusData.error_type) {
       return { providerJobId, status: "failed", outputUrls: [] };
     }
     if (rawStatus !== "COMPLETED") {
@@ -261,7 +274,7 @@ export async function checkAiJob({
     }
 
     const resultResponse = await fetch(
-      `https://queue.fal.run/${model}/requests/${encodeURIComponent(providerJobId)}`,
+      `https://queue.fal.run/${queueModel}/requests/${encodeURIComponent(providerJobId)}`,
       {
         headers: { Authorization: `Key ${apiKey}` },
         signal: AbortSignal.timeout(15_000),

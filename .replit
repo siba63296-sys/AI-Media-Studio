@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -26,3 +26,7 @@ channel = "stable-25_05"
 
 [userenv.shared]
 ADMIN_CLERK_USER_IDS = "user_3KHrBDGrGeu7zA2AaQanVfbYmcA"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
