@@ -1,0 +1,196 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { after, before, test } from "node:test";
+import type { Server } from "node:http";
+import express from "express";
+import { eq, inArray } from "drizzle-orm";
+import { db, pool, usersTable, generationsTable } from "@workspace/db";
+import {
+  GetDashboardResponse, GetToolsResponse, GetGenerationsResponse,
+  GetAdminOverviewResponse, GetAdminProvidersResponse,
+} from "@workspace/api-zod";
+import router from "../src/routes";
+import { ObjectStorageService } from "../src/lib/objectStorage";
+
+// Clerk identity fixtures are confined to this isolated test server. The
+// running application still uses clerkMiddleware to verify every session.
+const userId = `user_test_${randomUUID().replaceAll("-", "")}`;
+const adminId = `user_test_${randomUUID().replaceAll("-", "")}`;
+const originalAdmins = process.env.ADMIN_CLERK_USER_IDS;
+let server: Server;
+let baseUrl: string;
+let creationId: string;
+let uploadedPath: string | undefined;
+
+async function request(path: string, identity?: string, init?: RequestInit) {
+  return fetch(`${baseUrl}/api${path}`, {
+    ...init,
+    headers: {
+      ...(identity ? { "x-test-identity": identity } : {}),
+      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+}
+
+before(async () => {
+  process.env.ADMIN_CLERK_USER_IDS = adminId;
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    Object.assign(req, {
+      auth: () => ({
+        userId: req.get("x-test-identity") ?? null,
+        sessionId: "session_test",
+        tokenType: "session_token",
+      }),
+      log: { error() {}, warn() {}, info() {} },
+    });
+    next();
+  });
+  app.use("/api", router);
+  await new Promise<void>((resolve) => { server = app.listen(0, "127.0.0.1", resolve); });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  baseUrl = `http://127.0.0.1:${address.port}`;
+  for (const identity of [userId, adminId]) {
+    assert.equal((await request("/dashboard", identity)).status, 200);
+  }
+  const [creation] = await db.insert(generationsTable).values({
+    clerkId: userId, toolId: "text-to-image", category: "photo",
+    prompt: "API regression fixture", status: "completed", creditsUsed: 0,
+  }).returning({ id: generationsTable.id });
+  creationId = creation.id;
+});
+
+after(async () => {
+  try {
+    if (uploadedPath) {
+      const file = await new ObjectStorageService().getObjectEntityFile(uploadedPath);
+      await file.delete({ ignoreNotFound: true });
+    }
+    // All fixtures use unique IDs; cascading deletes cannot affect app users.
+    await db.delete(usersTable).where(inArray(usersTable.clerkId, [userId, adminId]));
+  } finally {
+    if (originalAdmins === undefined) delete process.env.ADMIN_CLERK_USER_IDS;
+    else process.env.ADMIN_CLERK_USER_IDS = originalAdmins;
+    if (server) await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    await pool.end();
+  }
+});
+
+test("public catalog routes are mounted and return valid persisted tools", async () => {
+  const response = await request("/tools");
+  assert.equal(response.status, 200);
+  const tools = GetToolsResponse.parse(await response.json());
+  assert.equal(tools.length, 20);
+  assert.ok(tools.some(tool => tool.id === "text-to-video"));
+  for (const path of ["/healthz", "/site-config", "/plans"]) {
+    assert.equal((await request(path)).status, 200, path);
+  }
+});
+
+test("protected routes return JSON 401, not 404, when signed out", async () => {
+  for (const path of ["/dashboard", "/generations", "/admin/overview", "/admin/providers"]) {
+    const response = await request(path);
+    assert.equal(response.status, 401, path);
+    assert.equal((await response.json()).code, "UNAUTHENTICATED");
+  }
+  assert.equal((await request("/storage/uploads/request-url", undefined, {
+    method: "POST", body: JSON.stringify({ name: "test.png", size: 8, contentType: "image/png" }),
+  })).status, 401);
+});
+
+test("dashboard initializes the free account and returns its own activity", async () => {
+  const response = await request("/dashboard", userId);
+  assert.equal(response.status, 200);
+  const data = GetDashboardResponse.parse(await response.json());
+  assert.equal(data.planName, "Free");
+  assert.equal(data.creditBalance, 0);
+  assert.ok(data.recentGenerations.some(g => g.id === creationId));
+});
+
+test("generation history stays scoped to its owner", async () => {
+  for (const identity of [userId, adminId]) {
+    const response = await request("/generations", identity);
+    assert.equal(response.status, 200);
+    const items = GetGenerationsResponse.parse(await response.json());
+    assert.equal(items.some(g => g.id === creationId), identity === userId);
+  }
+});
+
+test("ordinary users cannot read administration endpoints", async () => {
+  for (const path of ["/admin/overview", "/admin/providers", "/admin/tools", "/admin/plans", "/admin/users"]) {
+    const response = await request(path, userId);
+    assert.equal(response.status, 403, path);
+    assert.equal((await response.json()).code, "FORBIDDEN");
+  }
+});
+
+test("administrators get valid overview and provider responses", async () => {
+  const overview = await request("/admin/overview", adminId);
+  assert.equal(overview.status, 200);
+  assert.ok(GetAdminOverviewResponse.parse(await overview.json()).totalUsers >= 2);
+  const response = await request("/admin/providers", adminId);
+  assert.equal(response.status, 200);
+  const providers = GetAdminProvidersResponse.parse(await response.json());
+  assert.deepEqual(providers.map(p => p.id).sort(), ["fal", "replicate", "runway"]);
+  for (const path of ["/admin/tools", "/admin/plans", "/admin/users"]) {
+    assert.equal((await request(path, adminId)).status, 200, path);
+  }
+});
+
+test("favorite mutation validates input and preserves ownership", async () => {
+  const path = `/generations/${creationId}/favorite`;
+  assert.equal((await request(path, userId, { method: "PATCH", body: "{}" })).status, 400);
+  assert.equal((await request(path, adminId, {
+    method: "PATCH", body: JSON.stringify({ favorite: true }),
+  })).status, 404);
+  const update = await request(path, userId, {
+    method: "PATCH", body: JSON.stringify({ favorite: true }),
+  });
+  assert.equal(update.status, 200);
+  const favorites = GetGenerationsResponse.parse(await (await request("/generations?favoritesOnly=true", userId)).json());
+  assert.ok(favorites.some(g => g.id === creationId && g.favorite));
+});
+
+test("unconfigured AI fails explicitly without consuming credits", async () => {
+  const response = await request("/generations", userId, {
+    method: "POST",
+    body: JSON.stringify({ toolId: "text-to-image", prompt: "A test image", inputFiles: [], settings: {} }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "PROVIDER_NOT_CONFIGURED");
+});
+
+test("private uploads round-trip and reject other users", async () => {
+  const response = await request("/storage/uploads/request-url", userId, {
+    method: "POST", body: JSON.stringify({ name: "test.png", size: 8, contentType: "image/png" }),
+  });
+  assert.equal(response.status, 200);
+  const { uploadURL, objectPath } = await response.json() as { uploadURL: string; objectPath: string };
+  uploadedPath = objectPath;
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const upload = await fetch(uploadURL, { method: "PUT", headers: { "content-type": "image/png" }, body: bytes });
+  assert.ok(upload.ok);
+  const read = await request(`/storage${objectPath}`, userId);
+  assert.equal(read.status, 200);
+  assert.deepEqual(new Uint8Array(await read.arrayBuffer()), bytes);
+  assert.equal((await request(`/storage${objectPath}`, adminId)).status, 403);
+  assert.equal((await request(`/storage${objectPath}`)).status, 401);
+});
+
+test("suspended accounts cannot access the workspace", async () => {
+  await db.update(usersTable).set({ status: "suspended" }).where(eq(usersTable.clerkId, userId));
+  const response = await request("/dashboard", userId);
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "ACCOUNT_UNAVAILABLE");
+  await db.update(usersTable).set({ status: "active" }).where(eq(usersTable.clerkId, userId));
+});
+
+test("delete mutation refuses other owners and removes the creation", async () => {
+  assert.equal((await request(`/generations/${creationId}`, adminId, { method: "DELETE" })).status, 404);
+  assert.equal((await request(`/generations/${creationId}`, userId, { method: "DELETE" })).status, 204);
+  const data = GetGenerationsResponse.parse(await (await request("/generations", userId)).json());
+  assert.ok(!data.some(g => g.id === creationId));
+});

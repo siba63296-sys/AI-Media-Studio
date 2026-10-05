@@ -308,6 +308,9 @@ async function signObjectURL({
     );
   }
 
-  const { signed_url: signedURL } = await response.json();
-  return signedURL;
+  const data = await response.json() as { signed_url?: unknown };
+  if (typeof data.signed_url !== 'string' || !data.signed_url) {
+    throw new Error('Object storage returned an invalid signed URL response');
+  }
+  return data.signed_url;
 }

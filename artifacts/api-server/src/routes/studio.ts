@@ -8,8 +8,7 @@ import {
   DeleteGenerationResponse,
   DeleteAdminPlanParams,
   DeleteAdminPlanResponse,
-  ErrorEnvelope,
-  FavoriteInput,
+  SetGenerationFavoriteBody,
   GetAdminOverviewResponse,
   GetAdminPlansResponse,
   GetAdminProvidersResponse,
@@ -96,7 +95,7 @@ function sendError(
   message: string,
   code?: string,
 ): void {
-  res.status(status).json(ErrorEnvelope.parse({ error: message, code }));
+  res.status(status).json({ error: message, code });
 }
 
 function asyncRoute(
@@ -759,7 +758,7 @@ router.patch(
     const account = await ensureAccount(req, res);
     if (!account) return;
     const params = SetGenerationFavoriteParams.safeParse(req.params);
-    const body = FavoriteInput.safeParse(req.body);
+    const body = SetGenerationFavoriteBody.safeParse(req.body);
     if (!params.success || !body.success) {
       sendError(res, 400, "Invalid favorite update.", "INVALID_FAVORITE");
       return;
